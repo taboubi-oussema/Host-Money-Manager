@@ -329,6 +329,7 @@ source_counts = defaultdict(int)
 # Monthly breakdown for Last 6 Months (Month -> {income, me, mom, travel, expenses})
 monthly_data = defaultdict(lambda: {'income': Decimal('0'), 'For Me': Decimal('0'), 'For Mom': Decimal('0'), 'Travel': Decimal('0'), 'expenses': Decimal('0')})
 history_entries = []
+income_details = []
 
 # Process Income (Data A:F)
 for row in income_raw[1:]:
@@ -365,6 +366,15 @@ for row in income_raw[1:]:
             'Amount (TND)': amt_f,
             'Account / Source': src
         })
+        income_details.append({
+            'ym': ym,
+            'Date': date_val,
+            'From': src,
+            'Amount': float(amt_dec),
+            'For Me': float(val_me),
+            'For Mom': float(val_mom),
+            'Travel': float(val_travel),
+        })
 
 # Process Expenses (Expenses A:C)
 for row in expense_raw[1:]:
@@ -390,9 +400,6 @@ for row in expense_raw[1:]:
         })
 
 available = {acc: allocated[acc] - spent[acc] for acc in ACCOUNTS}
-total_allocated = sum(allocated.values())
-total_spent = sum(spent.values())
-total_available = sum(available.values())
 
 history_entries.sort(key=lambda x: str(x['Date']), reverse=True)
 
@@ -578,47 +585,75 @@ with tab_dash:
     )
 
 
-    # ── Section: Account Balances (Colab rows 28-33) ─────────────────────────
-    st.markdown('<div class="section-banner">💳 ACCOUNT BALANCES</div>', unsafe_allow_html=True)
+    # ── Section: Who paid you this month ─────────────────────────────────────
+    st.markdown('<div class="section-banner">💸 WHO PAID YOU</div>', unsafe_allow_html=True)
 
-    bal_table_rows = [
-        {
-            'Account': '👤 For Me',
-            'Allocated': float(allocated['For Me']),
-            'Spent': float(spent['For Me']),
-            'Available': float(available['For Me'])
-        },
-        {
-            'Account': '👩 For Mom',
-            'Allocated': float(allocated['For Mom']),
-            'Spent': float(spent['For Mom']),
-            'Available': float(available['For Mom'])
-        },
-        {
-            'Account': '✈️ Travel',
-            'Allocated': float(allocated['Travel']),
-            'Spent': float(spent['Travel']),
-            'Available': float(available['Travel'])
-        },
-        {
-            'Account': '💰 TOTAL',
-            'Allocated': float(total_allocated),
-            'Spent': float(total_spent),
-            'Available': float(total_available)
-        }
-    ]
-    b_df = pd.DataFrame(bal_table_rows)
-    st.dataframe(
-        b_df,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            'Account': st.column_config.TextColumn('Account', width='medium'),
-            'Allocated': st.column_config.NumberColumn('Allocated (TND)', format='%.2f'),
-            'Spent': st.column_config.NumberColumn('Spent (TND)', format='%.2f'),
-            'Available': st.column_config.NumberColumn('Available (TND)', format='%.2f'),
-        }
-    )
+    month_labels = [label for _, label in target_months]
+    picked_month = st.selectbox('Month', month_labels, index=0, key='who_paid_month')
+    picked_ym = next(ym for ym, label in target_months if label == picked_month)
+
+    month_incomes = [e for e in income_details if e['ym'] == picked_ym]
+    month_incomes.sort(key=lambda x: str(x['Date']), reverse=True)
+
+    if month_incomes:
+        by_who = defaultdict(lambda: {'amount': 0.0, 'times': 0})
+        for e in month_incomes:
+            by_who[e['From']]['amount'] += e['Amount']
+            by_who[e['From']]['times'] += 1
+        month_total = sum(v['amount'] for v in by_who.values())
+        who_rows = []
+        for src, info in sorted(by_who.items(), key=lambda x: x[1]['amount'], reverse=True):
+            who_rows.append({
+                'From': src,
+                'Amount': info['amount'],
+                'Times': info['times'],
+                'Share': f"{(info['amount'] / month_total * 100):.1f}%" if month_total > 0 else '0.0%',
+            })
+        who_rows.append({
+            'From': '💰 TOTAL',
+            'Amount': month_total,
+            'Times': len(month_incomes),
+            'Share': '100.0%',
+        })
+        st.dataframe(
+            pd.DataFrame(who_rows),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                'From': st.column_config.TextColumn('From'),
+                'Amount': st.column_config.NumberColumn('Amount (TND)', format='%.2f'),
+                'Times': st.column_config.NumberColumn('Payments'),
+                'Share': st.column_config.TextColumn('Share %'),
+            }
+        )
+
+        st.caption(f'Payments in {picked_month}')
+        detail_df = pd.DataFrame([
+            {
+                'Date': e['Date'],
+                'From': e['From'],
+                'Amount': e['Amount'],
+                'For Me': e['For Me'],
+                'For Mom': e['For Mom'],
+                'Travel': e['Travel'],
+            }
+            for e in month_incomes
+        ])
+        st.dataframe(
+            detail_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                'Date': st.column_config.TextColumn('📅 Date'),
+                'From': st.column_config.TextColumn('From'),
+                'Amount': st.column_config.NumberColumn('💰 Amount', format='%.2f'),
+                'For Me': st.column_config.NumberColumn('👤 For Me', format='%.2f'),
+                'For Mom': st.column_config.NumberColumn('👩 For Mom', format='%.2f'),
+                'Travel': st.column_config.NumberColumn('✈️ Travel', format='%.2f'),
+            }
+        )
+    else:
+        st.info(f'No income recorded in {picked_month}.')
 
 
     # ── Section: Income by Source (Colab rows 65-80) ─────────────────────────
