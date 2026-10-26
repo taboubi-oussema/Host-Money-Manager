@@ -204,6 +204,23 @@ header {{visibility: hidden;}}
     padding: 8px 18px;
     font-weight: 600;
 }}
+
+/* Table toolbar: keep fullscreen only */
+[data-testid="stElementToolbar"] [data-testid="stElementToolbarButton"] {{
+    display: none !important;
+}}
+[data-testid="stElementToolbar"] [data-testid="stToolbarSeparator"],
+[data-testid="stElementToolbar"] [data-testid="stElementToolbarSeparator"] {{
+    display: none !important;
+}}
+[data-testid="stElementToolbar"] [data-testid="stElementToolbarButton"][aria-label="Fullscreen"],
+[data-testid="stElementToolbar"] [data-testid="stElementToolbarButton"][title="Fullscreen"],
+[data-testid="stElementToolbar"] [data-testid="stElementToolbarButton"][aria-label="View fullscreen"],
+[data-testid="stElementToolbar"] [data-testid="stElementToolbarButton"][title="View fullscreen"],
+[data-testid="stElementToolbar"] [data-testid="stElementToolbarButton"]:has([aria-label="Fullscreen"]),
+[data-testid="stElementToolbar"] [data-testid="stElementToolbarButton"]:has([title="Fullscreen"]) {{
+    display: inline-flex !important;
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -812,21 +829,13 @@ with tab_history:
     st.markdown('<div class="section-banner">📜 TRANSACTION HISTORY</div>', unsafe_allow_html=True)
 
     if history_entries:
-        f_col1, f_col2 = st.columns([1, 2])
-        with f_col1:
-            h_filter = st.selectbox('Filter Type', ['All Transactions', 'Income Only', 'Expenses Only'])
-        with f_col2:
-            h_search = st.text_input('Search', placeholder='Search by source, account, date...')
+        h_filter = st.selectbox('Filter Type', ['All Transactions', 'Income Only', 'Expenses Only'])
 
         shown = history_entries
         if h_filter == 'Income Only':
             shown = [e for e in shown if 'Income' in e['Type']]
         elif h_filter == 'Expenses Only':
             shown = [e for e in shown if 'Expense' in e['Type']]
-
-        if h_search.strip():
-            q = h_search.strip().lower()
-            shown = [e for e in shown if q in e['Account / Source'].lower() or q in str(e['Date']).lower()]
 
         df_shown = pd.DataFrame(shown)
         st.dataframe(
