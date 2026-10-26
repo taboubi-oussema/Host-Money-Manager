@@ -2,224 +2,182 @@ import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 from decimal import Decimal, ROUND_HALF_UP
-from datetime import datetime
+from datetime import datetime, date
 from zoneinfo import ZoneInfo
 import pandas as pd
+import re
+from collections import defaultdict
 
 # ── Page config ──────────────────────────────────────────────────────────────
-st.set_page_config(page_title='Money Manager', page_icon='💰', layout='wide')
+st.set_page_config(
+    page_title='My Money Dashboard',
+    page_icon='💰',
+    layout='wide',
+    initial_sidebar_state='collapsed'
+)
 
-# ── Constants ────────────────────────────────────────────────────────────────
-SOURCES = ['binomty', 'la sister', 'pa', 'ather', 'Other']
+# ── Constants & Theme Colors (Matching Colab Dashboard) ──────────────────────
+CURRENCY = "TND"
+FOR_ME_PCT, FOR_MOM_PCT, TRAVEL_PCT = Decimal('0.50'), Decimal('0.05'), Decimal('0.45')
 ACCOUNTS = ['For Me', 'For Mom', 'Travel']
-PCTS = [Decimal('0.50'), Decimal('0.05')]
-ACCOUNT_ICONS = {'For Me': '👤', 'For Mom': '👩', 'Travel': '✈️'}
-ACCOUNT_COLORS = {'For Me': '#6C63FF', 'For Mom': '#FF6B9D', 'Travel': '#00D2FF'}
+SOURCES = ['binomty', 'la sister', 'pa', 'Other']
+
+# Script colors
+NAVY = "#1e293b"
+SLATE = "#475569"
+BLUE = "#2563eb"
+BLUE_L = "#dbeafe"
+PINK = "#db2777"
+PINK_L = "#fce7f3"
+GREEN = "#059669"
+GREEN_L = "#d1fae5"
+TEAL = "#0d9488"
+GREY_L = "#f1f5f9"
+
+ACCOUNT_COLORS = {
+    'For Me': BLUE,
+    'For Mom': PINK,
+    'Travel': GREEN
+}
+ACCOUNT_ICONS = {
+    'For Me': '👤',
+    'For Mom': '👩',
+    'Travel': '✈️'
+}
+
+DEFAULT_SHEET_ID = '1NrxRpsZMcF8N2A6t2V9fVsbFaDko_JoOrPecewQZJO8'
 
 # ── Custom CSS ───────────────────────────────────────────────────────────────
-st.markdown("""
+st.markdown(f"""
 <style>
-/* ── Import Google Font ── */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap');
 
-/* ── Global ── */
-.stApp {
-    font-family: 'Inter', sans-serif;
-}
+html, body, [class*="css"] {{
+    font-family: 'Roboto', sans-serif;
+}}
 
-/* ── Hide default Streamlit header/footer ── */
-#MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
-header {visibility: hidden;}
+#MainMenu {{visibility: hidden;}}
+footer {{visibility: hidden;}}
+header {{visibility: hidden;}}
 
-/* ── Hero header ── */
-.hero-header {
+/* Main Dashboard Header Banner */
+.dash-banner {{
+    background: linear-gradient(135deg, {NAVY} 0%, #0f172a 100%);
+    border-radius: 14px;
+    padding: 1.5rem 2rem;
     text-align: center;
-    padding: 1.5rem 0 1rem;
-    margin-bottom: 0.5rem;
-}
-.hero-header h1 {
-    font-size: 2.4rem;
+    color: white;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}}
+.dash-banner h1 {{
+    font-size: 2.1rem;
     font-weight: 800;
-    background: linear-gradient(135deg, #6C63FF 0%, #00D2FF 50%, #FF6B9D 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    margin-bottom: 0.2rem;
-    letter-spacing: -0.5px;
-}
-.hero-subtitle {
-    color: #888;
-    font-size: 0.9rem;
-    font-weight: 400;
+    margin: 0 0 0.3rem 0;
     letter-spacing: 0.5px;
-}
+}}
+.dash-banner p {{
+    color: #94a3b8;
+    margin: 0;
+    font-size: 0.95rem;
+}}
 
-/* ── Glassmorphism card ── */
-.glass-card {
-    background: rgba(255, 255, 255, 0.04);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 16px;
-    padding: 1.5rem;
-    margin-bottom: 1rem;
-    transition: all 0.3s ease;
-}
-.glass-card:hover {
-    border-color: rgba(108, 99, 255, 0.3);
-    box-shadow: 0 8px 32px rgba(108, 99, 255, 0.08);
-    transform: translateY(-2px);
-}
-
-/* ── Metric cards ── */
-.metric-card {
-    background: linear-gradient(135deg, rgba(108, 99, 255, 0.12) 0%, rgba(0, 210, 255, 0.06) 100%);
-    border: 1px solid rgba(108, 99, 255, 0.15);
-    border-radius: 16px;
+/* Top 4 Cards */
+.top-card {{
+    border-radius: 12px;
     padding: 1.2rem 1rem;
+    color: white;
     text-align: center;
-    transition: all 0.3s ease;
-}
-.metric-card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 12px 40px rgba(108, 99, 255, 0.15);
-    border-color: rgba(108, 99, 255, 0.4);
-}
-.metric-icon {
-    font-size: 1.8rem;
-    margin-bottom: 0.3rem;
-}
-.metric-label {
-    font-size: 0.75rem;
-    color: #888;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin-bottom: 0.3rem;
-}
-.metric-value {
-    font-size: 1.35rem;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    height: 100%;
+}}
+.top-card:hover {{
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+}}
+.top-card-title {{
+    font-size: 0.8rem;
     font-weight: 700;
-    color: #FAFAFA;
-    letter-spacing: -0.3px;
-}
-.metric-value.income { color: #4ADE80; }
-.metric-value.available { color: #6C63FF; }
-.metric-value.forme { color: #818CF8; }
-.metric-value.formom { color: #FF6B9D; }
-.metric-value.travel { color: #00D2FF; }
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    opacity: 0.9;
+    margin-bottom: 0.4rem;
+}}
+.top-card-value {{
+    font-size: 1.55rem;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+}}
+.top-card-sub {{
+    font-size: 0.75rem;
+    opacity: 0.85;
+    margin-top: 0.3rem;
+}}
 
-/* ── Nav pills ── */
-div[data-testid="stHorizontalBlock"] > div > div[data-testid="stRadio"] > div {
-    gap: 0.5rem;
-}
-
-/* ── Tabs override with pill style ── */
-.stTabs [data-baseweb="tab-list"] {
-    gap: 8px;
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 12px;
-    padding: 4px;
-}
-.stTabs [data-baseweb="tab"] {
-    border-radius: 10px;
-    padding: 8px 20px;
-    font-weight: 500;
-    font-size: 0.85rem;
-}
-.stTabs [aria-selected="true"] {
-    background: linear-gradient(135deg, #6C63FF, #5A52E0) !important;
-}
-
-/* ── Buttons ── */
-.stButton > button {
-    border-radius: 12px;
-    font-weight: 600;
-    padding: 0.6rem 2rem;
-    transition: all 0.3s ease;
-    border: none;
-    letter-spacing: 0.3px;
-}
-.stButton > button:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(108, 99, 255, 0.3);
-}
-.stButton > button[kind="primary"] {
-    background: linear-gradient(135deg, #6C63FF, #5A52E0);
-}
-
-/* ── Form styling ── */
-.stForm {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 16px;
-    padding: 1.5rem;
-}
-
-/* ── Dataframe ── */
-.stDataFrame {
-    border-radius: 12px;
-    overflow: hidden;
-}
-
-/* ── Success/Error messages ── */
-.stAlert {
-    border-radius: 12px;
-}
-
-/* ── Section headers ── */
-.section-header {
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: #FAFAFA;
-    margin-bottom: 1rem;
-    padding-bottom: 0.5rem;
-    border-bottom: 2px solid rgba(108, 99, 255, 0.3);
+/* Section Titles (Like Colab Script bars) */
+.section-banner {{
+    background: {SLATE};
+    color: white;
+    padding: 0.6rem 1rem;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 1.05rem;
+    letter-spacing: 0.03em;
+    margin: 1.5rem 0 1rem 0;
     display: flex;
     align-items: center;
     gap: 0.5rem;
-}
+}}
 
-/* ── Review breakdown ── */
-.breakdown-row {
+/* Card container */
+.panel-box {{
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 1.2rem;
+    margin-bottom: 1rem;
+}}
+
+/* Travel Goal Progress */
+.goal-bar-bg {{
+    background: #e2e8f0;
+    border-radius: 10px;
+    height: 18px;
+    overflow: hidden;
+    margin: 0.8rem 0;
+}}
+.goal-bar-fill {{
+    height: 100%;
+    background: {GREEN};
+    border-radius: 10px;
+    transition: width 0.6s ease;
+}}
+
+/* Allocation rows */
+.alloc-item {{
+    padding: 0.8rem 1rem;
+    border-radius: 8px;
+    margin-bottom: 0.5rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 0.6rem 0.8rem;
-    margin: 0.3rem 0;
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 10px;
-    border-left: 3px solid;
-    font-size: 0.9rem;
-}
+    font-weight: 500;
+}}
 
-/* ── Divider ── */
-.fancy-divider {
-    height: 1px;
-    background: linear-gradient(to right, transparent, rgba(108, 99, 255, 0.3), transparent);
-    margin: 1.5rem 0;
-}
+.alloc-me {{ background: {BLUE_L}; color: #1e3a8a; }}
+.alloc-mom {{ background: {PINK_L}; color: #831843; }}
+.alloc-travel {{ background: {GREEN_L}; color: #064e3b; }}
 
-/* ── History badges ── */
-.badge-income {
-    display: inline-block;
-    background: rgba(74, 222, 128, 0.15);
-    color: #4ADE80;
-    padding: 2px 10px;
-    border-radius: 20px;
-    font-size: 0.75rem;
+/* Tabs styling */
+.stTabs [data-baseweb="tab-list"] {{
+    gap: 8px;
+}}
+.stTabs [data-baseweb="tab"] {{
+    border-radius: 8px;
+    padding: 8px 18px;
     font-weight: 600;
-}
-.badge-expense {
-    display: inline-block;
-    background: rgba(248, 113, 113, 0.15);
-    color: #F87171;
-    padding: 2px 10px;
-    border-radius: 20px;
-    font-size: 0.75rem;
-    font-weight: 600;
-}
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -228,340 +186,686 @@ div[data-testid="stHorizontalBlock"] > div > div[data-testid="stRadio"] > div {
 @st.cache_resource
 def sheets():
     info = dict(st.secrets['gcp_service_account'])
-    credentials = Credentials.from_service_account_info(info, scopes=['https://www.googleapis.com/auth/spreadsheets'])
-    sh = gspread.authorize(credentials).open_by_key(st.secrets['sheet_id'])
-    return sh
+    credentials = Credentials.from_service_account_info(
+        info, scopes=['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+    )
+    sheet_key = st.secrets.get('sheet_id', DEFAULT_SHEET_ID)
+    return gspread.authorize(credentials).open_by_key(sheet_key)
 
-def amount(x):
-    return Decimal(str(x)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
-def read_data():
-    sh = sheets()
-    inc = sh.worksheet('Data').get('A1:F', value_render_option='UNFORMATTED_VALUE', date_time_render_option='FORMATTED_STRING')
-    exp = sh.worksheet('Expenses').get('A1:C', value_render_option='UNFORMATTED_VALUE', date_time_render_option='FORMATTED_STRING')
-    return inc, exp
+def clean_num_str(x):
+    if x is None:
+        return None
+    s = str(x).strip()
+    if not s:
+        return None
+    s_clean = re.sub(r'[^\d.,\-]', '', s)
+    if not s_clean or s_clean in ('-', '.', ',', '-.', '-,'):
+        return None
+    if '.' in s_clean and ',' in s_clean:
+        if s_clean.rfind('.') > s_clean.rfind(','):
+            s_clean = s_clean.replace(',', '')
+        else:
+            s_clean = s_clean.replace('.', '').replace(',', '.')
+    else:
+        s_clean = s_clean.replace(',', '.')
+    return s_clean
 
-def balances(inc, exp):
-    totals = dict.fromkeys(ACCOUNTS, Decimal('0.00'))
-    income_total = Decimal('0.00')
-    for r in inc[1:]:
-        if len(r) >= 5:
-            try:
-                income_total += amount(r[1])
-                for account, val in zip(ACCOUNTS, r[2:5]):
-                    totals[account] += amount(val)
-            except (ValueError, TypeError, ArithmeticError):
-                continue
-    for r in exp[1:]:
-        if len(r) >= 3 and r[2] in totals:
-            try:
-                totals[r[2]] -= amount(r[1])
-            except (ValueError, TypeError, ArithmeticError):
-                continue
-    return income_total, totals
+
+def safe_float(x):
+    try:
+        s = clean_num_str(x)
+        return float(s) if s is not None else None
+    except (ValueError, TypeError):
+        return None
+
+
+def to_decimal(x):
+    s = clean_num_str(x)
+    if s is None:
+        raise ValueError(f"Invalid amount: {x!r}")
+    return Decimal(s).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
 
 def money(x):
-    return f'{x:,.2f} TND'.replace(',', ' ').replace('.', ',')
+    if x is None:
+        return f"0.00 {CURRENCY}"
+    try:
+        val = Decimal(str(x))
+        return f"{val:,.2f} {CURRENCY}".replace(',', ' ')
+    except Exception:
+        return f"{x} {CURRENCY}"
 
 
-# ── Header ───────────────────────────────────────────────────────────────────
-st.markdown("""
-<div class="hero-header">
-    <h1>💰 Money Manager</h1>
-    <div class="hero-subtitle">Track your income · Manage your accounts · Plan your travels</div>
+def extract_ym(date_str):
+    if not date_str:
+        return 'Other'
+    s = str(date_str).strip()
+    m = re.match(r'^(\d{4})[-/](\d{1,2})', s)
+    if m:
+        return f"{m.group(1)}-{int(m.group(2)):02d}"
+    parts = re.split(r'[-/]', s.split()[0])
+    if len(parts) >= 3:
+        if len(parts[0]) == 4:
+            return f"{parts[0]}-{int(parts[1]):02d}"
+        elif len(parts[2]) == 4:
+            return f"{parts[2]}-{int(parts[1]):02d}"
+    return 'Other'
+
+
+def load_all_data():
+    sh = sheets()
+    inc = sh.worksheet('Data').get('A1:F', value_render_option='UNFORMATTED_VALUE', date_time_render_option='FORMATTED_STRING')
+    try:
+        exp_ws = sh.worksheet('Expenses')
+        exp = exp_ws.get('A1:C', value_render_option='UNFORMATTED_VALUE', date_time_render_option='FORMATTED_STRING')
+        if not exp or not exp[0]:
+            exp_ws.update(range_name='A1:C1', values=[['Date', 'Amount', 'Account']])
+            exp = [['Date', 'Amount', 'Account']]
+    except Exception:
+        exp = [['Date', 'Amount', 'Account']]
+    return inc, exp
+
+
+# ── Load Data ────────────────────────────────────────────────────────────────
+try:
+    income_raw, expense_raw = load_all_data()
+except Exception as exc:
+    st.error('⚠️ Could not connect to Google Sheets. Verify your secrets and sheet permissions.')
+    st.exception(exc)
+    st.stop()
+
+
+# ── Calculate Metrics exactly as Colab Script formulas ────────────────────────
+total_income = Decimal('0.00')
+allocated = {'For Me': Decimal('0.00'), 'For Mom': Decimal('0.00'), 'Travel': Decimal('0.00')}
+spent = {'For Me': Decimal('0.00'), 'For Mom': Decimal('0.00'), 'Travel': Decimal('0.00')}
+source_totals = defaultdict(Decimal)
+source_counts = defaultdict(int)
+
+# Monthly breakdown for Last 6 Months (Month -> {income, me, mom, travel, expenses})
+monthly_data = defaultdict(lambda: {'income': Decimal('0'), 'For Me': Decimal('0'), 'For Mom': Decimal('0'), 'Travel': Decimal('0'), 'expenses': Decimal('0')})
+history_entries = []
+
+# Process Income (Data A:F)
+for row in income_raw[1:]:
+    if len(row) >= 2 and str(row[0]).strip():
+        date_val = str(row[0]).strip()
+        amt_f = safe_float(row[1])
+        if amt_f is None or amt_f <= 0:
+            continue
+        amt_dec = to_decimal(amt_f)
+        total_income += amt_dec
+
+        # Allocations
+        val_me = to_decimal(row[2]) if len(row) > 2 and safe_float(row[2]) is not None else to_decimal(amt_dec * FOR_ME_PCT)
+        val_mom = to_decimal(row[3]) if len(row) > 3 and safe_float(row[3]) is not None else to_decimal(amt_dec * FOR_MOM_PCT)
+        val_travel = to_decimal(row[4]) if len(row) > 4 and safe_float(row[4]) is not None else (amt_dec - val_me - val_mom)
+
+        allocated['For Me'] += val_me
+        allocated['For Mom'] += val_mom
+        allocated['Travel'] += val_travel
+
+        src = str(row[5]).strip() if len(row) > 5 and str(row[5]).strip() else 'Other'
+        source_totals[src] += amt_dec
+        source_counts[src] += 1
+
+        ym = extract_ym(date_val)
+        monthly_data[ym]['income'] += amt_dec
+        monthly_data[ym]['For Me'] += val_me
+        monthly_data[ym]['For Mom'] += val_mom
+        monthly_data[ym]['Travel'] += val_travel
+
+        history_entries.append({
+            'Date': date_val,
+            'Type': '🟢 Income',
+            'Amount (TND)': amt_f,
+            'Account / Source': src
+        })
+
+# Process Expenses (Expenses A:C)
+for row in expense_raw[1:]:
+    if len(row) >= 2 and str(row[0]).strip():
+        date_val = str(row[0]).strip()
+        amt_f = safe_float(row[1])
+        if amt_f is None or amt_f <= 0:
+            continue
+        amt_dec = to_decimal(amt_f)
+        acc = str(row[2]).strip() if len(row) > 2 else 'For Me'
+        if acc not in spent:
+            acc = 'For Me'
+        spent[acc] += amt_dec
+
+        ym = extract_ym(date_val)
+        monthly_data[ym]['expenses'] += amt_dec
+
+        history_entries.append({
+            'Date': date_val,
+            'Type': '🔴 Expense',
+            'Amount (TND)': -amt_f,
+            'Account / Source': acc
+        })
+
+available = {acc: allocated[acc] - spent[acc] for acc in ACCOUNTS}
+total_allocated = sum(allocated.values())
+total_spent = sum(spent.values())
+total_available = sum(available.values())
+
+history_entries.sort(key=lambda x: str(x['Date']), reverse=True)
+
+
+# ── Banner Header (Colab rows 1-2) ───────────────────────────────────────────
+st.markdown(f"""
+<div class="dash-banner">
+    <h1>💰 MY MONEY DASHBOARD</h1>
+    <p>Currency: {CURRENCY} &nbsp;•&nbsp; Updates automatically from Google Sheets</p>
 </div>
 """, unsafe_allow_html=True)
 
 
-# ── Load data ────────────────────────────────────────────────────────────────
-try:
-    income_rows, expense_rows = read_data()
-except Exception as exc:
-    st.error('Cannot access Google Sheets. Check service account sharing, secrets, and worksheet names.')
-    st.exception(exc)
-    st.stop()
+# ── Top 4 Total Cards (Colab rows 4-5) ───────────────────────────────────────
+col1, col2, col3, col4 = st.columns(4)
 
-total_income, available = balances(income_rows, expense_rows)
-total_available = sum(available.values())
+with col1:
+    st.markdown(f"""
+    <div class="top-card" style="background: {TEAL};">
+        <div class="top-card-title">TOTAL INCOME</div>
+        <div class="top-card-value">{money(total_income)}</div>
+        <div class="top-card-sub">All-time earnings</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col2:
+    st.markdown(f"""
+    <div class="top-card" style="background: {BLUE};">
+        <div class="top-card-title">FOR ME ({int(FOR_ME_PCT*100)}%)</div>
+        <div class="top-card-value">{money(allocated['For Me'])}</div>
+        <div class="top-card-sub">Available: {money(available['For Me'])}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col3:
+    st.markdown(f"""
+    <div class="top-card" style="background: {PINK};">
+        <div class="top-card-title">FOR MY MOM ({int(FOR_MOM_PCT*100)}%)</div>
+        <div class="top-card-value">{money(allocated['For Mom'])}</div>
+        <div class="top-card-sub">Available: {money(available['For Mom'])}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col4:
+    st.markdown(f"""
+    <div class="top-card" style="background: {GREEN};">
+        <div class="top-card-title">TRAVEL FUND ({int(TRAVEL_PCT*100)}%)</div>
+        <div class="top-card-value">{money(allocated['Travel'])}</div>
+        <div class="top-card-sub">Available: {money(available['Travel'])}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 
-# ── Dashboard Metrics ────────────────────────────────────────────────────────
-metrics = [
-    ('💵', 'Total Income',  money(total_income),    'income'),
-    ('📊', 'Available',     money(total_available),  'available'),
-    ('👤', 'For Me',        money(available['For Me']),   'forme'),
-    ('👩', 'For Mom',       money(available['For Mom']),  'formom'),
-    ('✈️', 'Travel',        money(available['Travel']),   'travel'),
-]
+# ── Main Tabs ────────────────────────────────────────────────────────────────
+tab_dash, tab_add_inc, tab_add_exp, tab_history = st.tabs([
+    '📊 Full Dashboard',
+    '💵 Add Income',
+    '💳 Add Expense',
+    '📜 History'
+])
 
-cols = st.columns(5, gap='medium')
-for col, (icon, label, val, css_class) in zip(cols, metrics):
-    with col:
+
+# ═════════════════════════════════════════════════════════════════════════════
+# TAB 1: FULL DASHBOARD (Exact layout & sections from Colab script)
+# ═════════════════════════════════════════════════════════════════════════════
+with tab_dash:
+
+    # ── Section: Where Your Money Goes (Colab rows 7-11) ─────────────────────
+    st.markdown('<div class="section-banner">📊 WHERE YOUR MONEY GOES</div>', unsafe_allow_html=True)
+
+    col_alloc_cards, col_alloc_chart = st.columns([1, 1], gap='large')
+
+    with col_alloc_cards:
+        share_me = (allocated['For Me'] / total_income * 100) if total_income > 0 else Decimal('50.0')
+        share_mom = (allocated['For Mom'] / total_income * 100) if total_income > 0 else Decimal('5.0')
+        share_travel = (allocated['Travel'] / total_income * 100) if total_income > 0 else Decimal('45.0')
+
         st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-icon">{icon}</div>
-            <div class="metric-label">{label}</div>
-            <div class="metric-value {css_class}">{val}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-st.markdown('<div class="fancy-divider"></div>', unsafe_allow_html=True)
-
-
-# ── Navigation ───────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs(['📊 Dashboard', '💵 Add Income', '💳 Add Expense', '📜 History'])
-
-
-# ── Tab 1: Dashboard ─────────────────────────────────────────────────────────
-with tab1:
-    st.markdown('<div class="section-header">📈 Account Overview</div>', unsafe_allow_html=True)
-
-    for acc in ACCOUNTS:
-        icon = ACCOUNT_ICONS[acc]
-        color = ACCOUNT_COLORS[acc]
-        balance = available[acc]
-        pct = (balance / total_available * 100) if total_available > 0 else Decimal('0')
-
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.markdown(f"""
-            <div class="glass-card" style="padding: 1rem 1.2rem;">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <div style="display:flex; align-items:center; gap:0.7rem;">
-                        <span style="font-size:1.5rem;">{icon}</span>
-                        <div>
-                            <div style="font-weight:600; font-size:1rem;">{acc}</div>
-                            <div style="color:#888; font-size:0.8rem;">Balance available</div>
-                        </div>
-                    </div>
-                    <div style="text-align:right;">
-                        <div style="font-weight:700; font-size:1.2rem; color:{color};">{money(balance)}</div>
-                        <div style="color:#888; font-size:0.75rem;">{pct:.1f}% of total</div>
-                    </div>
-                </div>
-                <div style="margin-top:0.8rem; background:rgba(255,255,255,0.06); border-radius:8px; height:6px; overflow:hidden;">
-                    <div style="width:{min(float(pct), 100):.1f}%; height:100%; background:linear-gradient(90deg, {color}, {color}88); border-radius:8px; transition: width 0.5s ease;"></div>
-                </div>
+        <div class="alloc-item alloc-me">
+            <div><strong>👤 For Me (50%)</strong><br><small>Personal living & freedom</small></div>
+            <div style="text-align:right;">
+                <div style="font-weight:700; font-size:1.1rem;">{money(allocated['For Me'])}</div>
+                <div style="font-size:0.8rem; opacity:0.85;">{share_me:.1f}% share</div>
             </div>
-            """, unsafe_allow_html=True)
-
-    st.markdown('<div class="fancy-divider"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-header">💡 Quick Info</div>', unsafe_allow_html=True)
-
-    info_col1, info_col2, info_col3 = st.columns(3)
-    with info_col1:
-        total_expenses = total_income - total_available
-        st.markdown(f"""
-        <div class="glass-card" style="text-align:center;">
-            <div style="font-size:1.5rem;">🔥</div>
-            <div class="metric-label">Total Spent</div>
-            <div style="font-size:1.1rem; font-weight:600; color:#F87171;">{money(total_expenses)}</div>
         </div>
-        """, unsafe_allow_html=True)
-    with info_col2:
-        savings_rate = (total_available / total_income * 100) if total_income > 0 else Decimal('0')
-        st.markdown(f"""
-        <div class="glass-card" style="text-align:center;">
-            <div style="font-size:1.5rem;">💎</div>
-            <div class="metric-label">Savings Rate</div>
-            <div style="font-size:1.1rem; font-weight:600; color:#4ADE80;">{savings_rate:.0f}%</div>
+        <div class="alloc-item alloc-mom">
+            <div><strong>👩 For My Mom (5%)</strong><br><small>Family support & gifts</small></div>
+            <div style="text-align:right;">
+                <div style="font-weight:700; font-size:1.1rem;">{money(allocated['For Mom'])}</div>
+                <div style="font-size:0.8rem; opacity:0.85;">{share_mom:.1f}% share</div>
+            </div>
         </div>
-        """, unsafe_allow_html=True)
-    with info_col3:
-        n_transactions = len(income_rows[1:]) + len(expense_rows[1:])
-        st.markdown(f"""
-        <div class="glass-card" style="text-align:center;">
-            <div style="font-size:1.5rem;">📝</div>
-            <div class="metric-label">Transactions</div>
-            <div style="font-size:1.1rem; font-weight:600; color:#818CF8;">{n_transactions}</div>
+        <div class="alloc-item alloc-travel">
+            <div><strong>✈️ Travel (45%)</strong><br><small>Adventures & flight savings</small></div>
+            <div style="text-align:right;">
+                <div style="font-weight:700; font-size:1.1rem;">{money(allocated['Travel'])}</div>
+                <div style="font-size:0.8rem; opacity:0.85;">{share_travel:.1f}% share</div>
+            </div>
         </div>
         """, unsafe_allow_html=True)
 
+    with col_alloc_chart:
+        alloc_df = pd.DataFrame({
+            'Category': ['👤 For Me', '👩 For Mom', '✈️ Travel'],
+            'Allocated (TND)': [float(allocated['For Me']), float(allocated['For Mom']), float(allocated['Travel'])]
+        }).set_index('Category')
+        st.bar_chart(alloc_df, color=[BLUE], height=210)
 
-# ── Tab 2: Add Income ────────────────────────────────────────────────────────
-with tab2:
-    st.markdown('<div class="section-header">💵 Record New Income</div>', unsafe_allow_html=True)
 
-    with st.form('income', clear_on_submit=False):
-        col_a, col_b = st.columns(2)
-        with col_a:
-            value = st.number_input('Amount (TND)', min_value=0.01, value=10.0, step=1.0, format='%.2f')
-        with col_b:
-            selected = st.selectbox('Who gave you the money?', SOURCES)
-        custom = st.text_input('Custom source name') if selected == 'Other' else ''
-        submitted = st.form_submit_button('🔍  Review Income', use_container_width=True, type='primary')
+    # ── Section: Travel Goal (Colab rows 13-17) ──────────────────────────────
+    st.markdown('<div class="section-banner">🎯 TRAVEL GOAL</div>', unsafe_allow_html=True)
 
-    if submitted:
-        source = (custom if selected == 'Other' else selected).strip()
-        if not source or len(source) > 40 or source[0] in '=+-@':
-            st.error('⚠️ Enter a valid source (max 40 characters, no formula prefix).')
+    if 'custom_goal' not in st.session_state:
+        st.session_state['custom_goal'] = 5000.0
+
+    travel_goal_val = Decimal(str(st.session_state['custom_goal']))
+    travel_saved = available['Travel']
+    travel_rem = max(Decimal('0'), travel_goal_val - travel_saved)
+    prog_pct = float(min(Decimal('100.0'), (travel_saved / travel_goal_val * Decimal('100.0')))) if travel_goal_val > 0 else 0.0
+
+    st.markdown(f"""
+    <div class="panel-box">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; margin-bottom:0.4rem;">
+            <div style="font-size:1.15rem; font-weight:700;">✈️ Next Adventure Fund</div>
+            <div style="font-size:1.2rem; font-weight:800; color:{GREEN};">{prog_pct:.1f}% Completed</div>
+        </div>
+        <div class="goal-bar-bg">
+            <div class="goal-bar-fill" style="width: {prog_pct}%;"></div>
+        </div>
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin-top:0.8rem; text-align:center;">
+            <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:8px;">
+                <div style="font-size:0.75rem; color:#94a3b8;">Goal (edit below)</div>
+                <div style="font-size:1.2rem; font-weight:700;">{money(travel_goal_val)}</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:8px;">
+                <div style="font-size:0.75rem; color:#94a3b8;">Saved So Far (Available)</div>
+                <div style="font-size:1.2rem; font-weight:700; color:{GREEN};">{money(travel_saved)}</div>
+            </div>
+            <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:8px;">
+                <div style="font-size:0.75rem; color:#94a3b8;">Remaining to Save</div>
+                <div style="font-size:1.2rem; font-weight:700; color:{PINK};">{money(travel_rem)}</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    with st.expander('✏️ Edit Travel Goal Target'):
+        new_g = st.number_input('Goal Target (TND)', min_value=100.0, value=float(st.session_state['custom_goal']), step=250.0, format='%.2f')
+        if new_g != st.session_state['custom_goal']:
+            st.session_state['custom_goal'] = new_g
+            st.rerun()
+
+
+    # ── Section: Last 6 Months (Colab rows 19-26) ────────────────────────────
+    st.markdown('<div class="section-banner">📅 LAST 6 MONTHS</div>', unsafe_allow_html=True)
+
+    # 6 months starting from current month (Oct 2026 down to May 2026)
+    today = datetime.now()
+    target_months = []
+    for i in range(6):
+        y = today.year
+        m = today.month - i
+        while m <= 0:
+            m += 12
+            y -= 1
+        ym_key = f"{y:04d}-{m:02d}"
+        label = datetime(y, m, 1).strftime("%b %Y")  # "Oct 2026", "Sep 2026", ..., "May 2026"
+        target_months.append((ym_key, label))
+
+    m_rows = []
+    chart_split = []
+    for ym_key, label in target_months:
+        md = monthly_data[ym_key]
+        m_inc = float(md['income'])
+        m_me = float(md['For Me'])
+        m_mom = float(md['For Mom'])
+        m_travel = float(md['Travel'])
+        m_exp = float(md['expenses'])
+        m_rows.append({
+            'Month': label,
+            'Income': m_inc,
+            'For Me': m_me,
+            'For Mom': m_mom,
+            'Travel': m_travel,
+            'Expenses': m_exp
+        })
+        chart_split.append({
+            'Month': label,
+            'For Me': m_me,
+            'For Mom': m_mom,
+            'Travel': m_travel
+        })
+
+    col_m_tbl, col_m_ch = st.columns([3, 2], gap='large')
+    with col_m_tbl:
+        m_df = pd.DataFrame(m_rows)
+        st.dataframe(
+            m_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                'Month': st.column_config.TextColumn('📅 Month'),
+                'Income': st.column_config.NumberColumn('💰 Income', format='%.2f'),
+                'For Me': st.column_config.NumberColumn('👤 For Me', format='%.2f'),
+                'For Mom': st.column_config.NumberColumn('👩 For Mom', format='%.2f'),
+                'Travel': st.column_config.NumberColumn('✈️ Travel', format='%.2f'),
+                'Expenses': st.column_config.NumberColumn('🔥 Expenses', format='%.2f'),
+            }
+        )
+
+    with col_m_ch:
+        st.markdown('<div style="font-size:0.9rem; font-weight:600; margin-bottom:0.4rem;">Monthly Income Split Chart</div>', unsafe_allow_html=True)
+        cs_df = pd.DataFrame(chart_split).set_index('Month')
+        st.bar_chart(cs_df, color=[BLUE, PINK, GREEN], height=240)
+
+
+    # ── Section: Account Balances (Colab rows 28-33) ─────────────────────────
+    st.markdown('<div class="section-banner">💳 ACCOUNT BALANCES</div>', unsafe_allow_html=True)
+
+    col_bal_tbl, col_bal_ch = st.columns([3, 2], gap='large')
+
+    with col_bal_tbl:
+        bal_table_rows = [
+            {
+                'Account': '👤 For Me',
+                'Allocated': float(allocated['For Me']),
+                'Spent': float(spent['For Me']),
+                'Available': float(available['For Me'])
+            },
+            {
+                'Account': '👩 For Mom',
+                'Allocated': float(allocated['For Mom']),
+                'Spent': float(spent['For Mom']),
+                'Available': float(available['For Mom'])
+            },
+            {
+                'Account': '✈️ Travel',
+                'Allocated': float(allocated['Travel']),
+                'Spent': float(spent['Travel']),
+                'Available': float(available['Travel'])
+            },
+            {
+                'Account': '💰 TOTAL',
+                'Allocated': float(total_allocated),
+                'Spent': float(total_spent),
+                'Available': float(total_available)
+            }
+        ]
+        b_df = pd.DataFrame(bal_table_rows)
+        st.dataframe(
+            b_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                'Account': st.column_config.TextColumn('Account', width='medium'),
+                'Allocated': st.column_config.NumberColumn('Allocated (TND)', format='%.2f'),
+                'Spent': st.column_config.NumberColumn('Spent (TND)', format='%.2f'),
+                'Available': st.column_config.NumberColumn('Available (TND)', format='%.2f'),
+            }
+        )
+
+    with col_bal_ch:
+        st.markdown('<div style="font-size:0.9rem; font-weight:600; margin-bottom:0.4rem;">Allocated vs Available</div>', unsafe_allow_html=True)
+        ch_bal_df = pd.DataFrame([
+            {'Account': 'For Me', 'Allocated': float(allocated['For Me']), 'Available': float(available['For Me'])},
+            {'Account': 'For Mom', 'Allocated': float(allocated['For Mom']), 'Available': float(available['For Mom'])},
+            {'Account': 'Travel', 'Allocated': float(allocated['Travel']), 'Available': float(available['Travel'])},
+        ]).set_index('Account')
+        st.bar_chart(ch_bal_df, color=[SLATE, GREEN], height=240)
+
+
+    # ── Section: Income by Source (Colab rows 65-80) ─────────────────────────
+    st.markdown('<div class="section-banner">💼 INCOME BY SOURCE</div>', unsafe_allow_html=True)
+
+    col_src_tbl, col_src_ch = st.columns([3, 2], gap='large')
+
+    with col_src_tbl:
+        src_rows = []
+        for s_name, s_tot in sorted(source_totals.items(), key=lambda x: x[1], reverse=True):
+            src_rows.append({
+                'Source': s_name,
+                'Total Received (TND)': float(s_tot),
+                'Transactions': source_counts[s_name],
+                'Share': f"{(float(s_tot)/float(total_income)*100):.1f}%" if total_income > 0 else '0.0%'
+            })
+        if src_rows:
+            src_df = pd.DataFrame(src_rows)
+            st.dataframe(
+                src_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    'Source': st.column_config.TextColumn('Source'),
+                    'Total Received (TND)': st.column_config.NumberColumn('Total Received', format='%.2f'),
+                    'Transactions': st.column_config.NumberColumn('Transactions'),
+                    'Share': st.column_config.TextColumn('Share %'),
+                }
+            )
         else:
-            amt = amount(value)
-            me = amount(amt * PCTS[0]); mom = amount(amt * PCTS[1]); travel = amt - me - mom
+            st.info('No income sources recorded yet.')
+
+    with col_src_ch:
+        if src_rows:
+            st.markdown('<div style="font-size:0.9rem; font-weight:600; margin-bottom:0.4rem;">Source Distribution</div>', unsafe_allow_html=True)
+            ch_src_df = pd.DataFrame(src_rows).set_index('Source')[['Total Received (TND)']]
+            st.bar_chart(ch_src_df, color=[TEAL], height=240)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# TAB 2: ADD INCOME
+# ═════════════════════════════════════════════════════════════════════════════
+with tab_add_inc:
+    st.markdown('<div class="section-banner">💵 RECORD NEW INCOME</div>', unsafe_allow_html=True)
+
+    with st.form('add_income_form', clear_on_submit=False):
+        c_i1, c_i2 = st.columns(2)
+        with c_i1:
+            inc_amount_val = st.number_input('Amount (TND)', min_value=0.01, value=50.0, step=5.0, format='%.2f')
+        with c_i2:
+            inc_source_select = st.selectbox('Income Source', SOURCES)
+
+        inc_custom_val = st.text_input('Custom Source Name') if inc_source_select == 'Other' else ''
+        review_income = st.form_submit_button('🔍 Review Split (50% / 5% / 45%)', use_container_width=True, type='primary')
+
+    if review_income:
+        final_source = (inc_custom_val if inc_source_select == 'Other' else inc_source_select).strip()
+        if not final_source or len(final_source) > 40 or final_source[0] in '=+-@':
+            st.error('⚠️ Please enter a valid source name (max 40 chars, no formula prefix).')
+        else:
+            dec_amt = to_decimal(inc_amount_val)
+            split_me = to_decimal(dec_amt * FOR_ME_PCT)
+            split_mom = to_decimal(dec_amt * FOR_MOM_PCT)
+            split_travel = dec_amt - split_me - split_mom
 
             st.markdown(f"""
-            <div class="glass-card">
-                <div style="font-weight:600; margin-bottom:0.8rem; font-size:1rem;">📋 Income Breakdown — {source}</div>
-                <div class="breakdown-row" style="border-color:#4ADE80;">
-                    <span>💵 Total Income</span>
-                    <span style="font-weight:700; color:#4ADE80;">{money(amt)}</span>
-                </div>
-                <div class="breakdown-row" style="border-color:#818CF8;">
+            <div class="panel-box">
+                <div style="font-weight:700; font-size:1.05rem; margin-bottom:0.8rem;">📋 Split Preview for {final_source}:</div>
+                <div class="alloc-item alloc-me">
                     <span>👤 For Me (50%)</span>
-                    <span style="font-weight:600; color:#818CF8;">{money(me)}</span>
+                    <span>+{money(split_me)}</span>
                 </div>
-                <div class="breakdown-row" style="border-color:#FF6B9D;">
-                    <span>👩 For Mom (5%)</span>
-                    <span style="font-weight:600; color:#FF6B9D;">{money(mom)}</span>
+                <div class="alloc-item alloc-mom">
+                    <span>👩 For My Mom (5%)</span>
+                    <span>+{money(split_mom)}</span>
                 </div>
-                <div class="breakdown-row" style="border-color:#00D2FF;">
-                    <span>✈️ Travel (45%)</span>
-                    <span style="font-weight:600; color:#00D2FF;">{money(travel)}</span>
+                <div class="alloc-item alloc-travel">
+                    <span>✈️ Travel Fund (45%)</span>
+                    <span>+{money(split_travel)}</span>
                 </div>
             </div>
             """, unsafe_allow_html=True)
 
             st.session_state['pending_income'] = [
                 datetime.now(ZoneInfo('Africa/Tunis')).strftime('%Y-%m-%d %H:%M'),
-                float(amt), float(me), float(mom), float(travel), source
+                float(dec_amt),
+                float(split_me),
+                float(split_mom),
+                float(split_travel),
+                final_source
             ]
 
     if st.session_state.get('pending_income'):
-        if st.button('✅  Confirm & Save Income', use_container_width=True, type='primary'):
+        if st.button('✅ Confirm & Save Income to Google Sheets', use_container_width=True, type='primary'):
             try:
                 sheets().worksheet('Data').append_row(
                     st.session_state['pending_income'],
-                    value_input_option='RAW', table_range='A:F'
+                    value_input_option='RAW',
+                    table_range='A:F'
                 )
-            except Exception:
-                st.error('⚠️ Save result uncertain. Check Google Sheets before trying again.')
-            else:
                 st.session_state.pop('pending_income', None)
-                st.success('🎉 Income saved successfully!')
+                st.success('🎉 Income successfully recorded and allocated!')
                 st.balloons()
                 st.rerun()
+            except Exception as e:
+                st.error(f'⚠️ Error saving to Google Sheets: {e}')
 
 
-# ── Tab 3: Add Expense ───────────────────────────────────────────────────────
-with tab3:
-    st.markdown('<div class="section-header">💳 Record New Expense</div>', unsafe_allow_html=True)
+# ═════════════════════════════════════════════════════════════════════════════
+# TAB 3: ADD EXPENSE
+# ═════════════════════════════════════════════════════════════════════════════
+with tab_add_exp:
+    st.markdown('<div class="section-banner">💳 RECORD NEW EXPENSE</div>', unsafe_allow_html=True)
 
-    # Show account balances before spending
+    # Show live available balances
     bal_cols = st.columns(3)
-    for i, acc in enumerate(ACCOUNTS):
-        with bal_cols[i]:
+    for idx, acc in enumerate(ACCOUNTS):
+        with bal_cols[idx]:
             icon = ACCOUNT_ICONS[acc]
-            color = ACCOUNT_COLORS[acc]
+            col = ACCOUNT_COLORS[acc]
             st.markdown(f"""
-            <div class="glass-card" style="text-align:center; padding:0.8rem;">
-                <div style="font-size:1.2rem;">{icon}</div>
-                <div style="font-size:0.75rem; color:#888; margin:0.2rem 0;">{acc}</div>
-                <div style="font-weight:700; color:{color};">{money(available[acc])}</div>
+            <div class="panel-box" style="text-align:center;">
+                <div style="font-size:1.5rem;">{icon}</div>
+                <div style="font-size:0.8rem; color:#94a3b8;">{acc} Available</div>
+                <div style="font-size:1.25rem; font-weight:800; color:{col}; margin-top:0.2rem;">
+                    {money(available[acc])}
+                </div>
             </div>
             """, unsafe_allow_html=True)
 
-    with st.form('expense'):
-        col_a, col_b = st.columns(2)
-        with col_a:
-            account = st.selectbox('Account', ACCOUNTS)
-        with col_b:
-            value = st.number_input('Amount (TND)', min_value=0.01, value=10.0, step=1.0, format='%.2f', key='expense_value')
-        submitted = st.form_submit_button('🔍  Review Expense', use_container_width=True, type='primary')
+    with st.form('add_expense_form', clear_on_submit=False):
+        c_e1, c_e2 = st.columns(2)
+        with c_e1:
+            exp_acc_choice = st.selectbox('Deduct from Account', ACCOUNTS)
+        with c_e2:
+            exp_val = st.number_input('Amount (TND)', min_value=0.01, value=15.0, step=5.0, format='%.2f')
 
-    if submitted:
-        amt = amount(value)
-        if amt > available[account]:
-            st.error(f'⚠️ Insufficient balance in {account}: only {money(available[account])} available.')
+        review_exp = st.form_submit_button('🔍 Review Expense', use_container_width=True, type='primary')
+
+    if review_exp:
+        dec_exp = to_decimal(exp_val)
+        avail = available[exp_acc_choice]
+        if dec_exp > avail:
+            st.error(f"⚠️ Insufficient funds in {exp_acc_choice}: only {money(avail)} available.")
         else:
-            new_balance = available[account] - amt
-            color = ACCOUNT_COLORS[account]
+            new_bal = avail - dec_exp
             st.markdown(f"""
-            <div class="glass-card">
-                <div style="font-weight:600; margin-bottom:0.8rem;">📋 Expense Preview — {account}</div>
-                <div class="breakdown-row" style="border-color:{color};">
-                    <span>Current Balance</span>
-                    <span style="font-weight:600;">{money(available[account])}</span>
+            <div class="panel-box">
+                <div style="font-weight:700; margin-bottom:0.5rem;">Expense Confirmation — {exp_acc_choice}:</div>
+                <div style="display:flex; justify-content:space-between; padding:0.5rem 0; border-bottom:1px solid rgba(255,255,255,0.08);">
+                    <span>Current Balance:</span>
+                    <span>{money(avail)}</span>
                 </div>
-                <div class="breakdown-row" style="border-color:#F87171;">
-                    <span>− Expense</span>
-                    <span style="font-weight:600; color:#F87171;">−{money(amt)}</span>
+                <div style="display:flex; justify-content:space-between; padding:0.5rem 0; color:#f87171; border-bottom:1px solid rgba(255,255,255,0.08);">
+                    <span>− Expense:</span>
+                    <span>−{money(dec_exp)}</span>
                 </div>
-                <div class="breakdown-row" style="border-color:#4ADE80;">
-                    <span>New Balance</span>
-                    <span style="font-weight:700; color:#4ADE80;">{money(new_balance)}</span>
+                <div style="display:flex; justify-content:space-between; padding:0.5rem 0; font-weight:700; color:{GREEN};">
+                    <span>New Balance:</span>
+                    <span>{money(new_bal)}</span>
                 </div>
             </div>
             """, unsafe_allow_html=True)
-            st.session_state['pending_expense'] = (account, amt)
+            st.session_state['pending_expense'] = (exp_acc_choice, dec_exp)
 
     if st.session_state.get('pending_expense'):
-        if st.button('✅  Confirm & Save Expense', use_container_width=True, type='primary'):
-            account, amt = st.session_state['pending_expense']
+        if st.button('✅ Confirm & Save Expense', use_container_width=True, type='primary'):
+            sel_acc, sel_amt = st.session_state['pending_expense']
             try:
-                inc, exp = read_data()
-                _, fresh = balances(inc, exp)
-                if amt > fresh[account]:
-                    st.error('⚠️ Balance changed. Expense not saved.')
+                # Re-check live balance before recording
+                fresh_inc, fresh_exp = load_all_data()
+                # quick sum check
+                fresh_alloc = Decimal('0.00')
+                for r in fresh_inc[1:]:
+                    if len(r) >= 2 and str(r[0]).strip():
+                        amt_num = safe_float(r[1])
+                        if amt_num:
+                            d = to_decimal(amt_num)
+                            if sel_acc == 'For Me':
+                                fresh_alloc += to_decimal(r[2]) if len(r) > 2 and safe_float(r[2]) is not None else to_decimal(d * FOR_ME_PCT)
+                            elif sel_acc == 'For Mom':
+                                fresh_alloc += to_decimal(r[3]) if len(r) > 3 and safe_float(r[3]) is not None else to_decimal(d * FOR_MOM_PCT)
+                            elif sel_acc == 'Travel':
+                                fresh_alloc += to_decimal(r[4]) if len(r) > 4 and safe_float(r[4]) is not None else (d - to_decimal(d * FOR_ME_PCT) - to_decimal(d * FOR_MOM_PCT))
+
+                fresh_spent = Decimal('0.00')
+                for r in fresh_exp[1:]:
+                    if len(r) >= 3 and str(r[0]).strip() and str(r[2]).strip() == sel_acc:
+                        amt_num = safe_float(r[1])
+                        if amt_num:
+                            fresh_spent += to_decimal(amt_num)
+
+                fresh_avail = fresh_alloc - fresh_spent
+                if sel_amt > fresh_avail:
+                    st.error('⚠️ Balance changed in Google Sheets. Expense not saved.')
                 else:
                     sheets().worksheet('Expenses').append_row(
-                        [datetime.now(ZoneInfo('Africa/Tunis')).strftime('%Y-%m-%d %H:%M'), float(amt), account],
-                        value_input_option='RAW', table_range='A:C'
+                        [
+                            datetime.now(ZoneInfo('Africa/Tunis')).strftime('%Y-%m-%d %H:%M'),
+                            float(sel_amt),
+                            sel_acc
+                        ],
+                        value_input_option='RAW',
+                        table_range='A:C'
                     )
                     st.session_state.pop('pending_expense', None)
-                    st.success('🎉 Expense saved successfully!')
+                    st.success('🎉 Expense recorded successfully!')
                     st.rerun()
-            except Exception:
-                st.error('⚠️ Save result uncertain. Check Google Sheets before trying again.')
+            except Exception as e:
+                st.error(f'⚠️ Failed to save expense: {e}')
 
 
-# ── Tab 4: History ───────────────────────────────────────────────────────────
-with tab4:
-    st.markdown('<div class="section-header">📜 Transaction History</div>', unsafe_allow_html=True)
+# ═════════════════════════════════════════════════════════════════════════════
+# TAB 4: HISTORY
+# ═════════════════════════════════════════════════════════════════════════════
+with tab_history:
+    st.markdown('<div class="section-banner">📜 TRANSACTION HISTORY</div>', unsafe_allow_html=True)
 
-    entries = []
-    for row in income_rows[1:]:
-        if len(row) >= 5:
-            entries.append({
-                'Date': row[0],
-                'Type': '🟢 Income',
-                'Amount (TND)': float(row[1]),
-                'Account / Source': row[5] if len(row) > 5 else ''
-            })
-    for row in expense_rows[1:]:
-        if len(row) >= 3:
-            entries.append({
-                'Date': row[0],
-                'Type': '🔴 Expense',
-                'Amount (TND)': -float(row[1]),
-                'Account / Source': row[2]
-            })
-    entries.sort(key=lambda r: str(r['Date']), reverse=True)
+    if history_entries:
+        f_col1, f_col2 = st.columns([1, 2])
+        with f_col1:
+            h_filter = st.selectbox('Filter Type', ['All Transactions', 'Income Only', 'Expenses Only'])
+        with f_col2:
+            h_search = st.text_input('Search', placeholder='Search by source, account, date...')
 
-    if entries:
-        df = pd.DataFrame(entries)
+        shown = history_entries
+        if h_filter == 'Income Only':
+            shown = [e for e in shown if 'Income' in e['Type']]
+        elif h_filter == 'Expenses Only':
+            shown = [e for e in shown if 'Expense' in e['Type']]
+
+        if h_search.strip():
+            q = h_search.strip().lower()
+            shown = [e for e in shown if q in e['Account / Source'].lower() or q in str(e['Date']).lower()]
+
+        df_shown = pd.DataFrame(shown)
         st.dataframe(
-            df,
+            df_shown,
             use_container_width=True,
             hide_index=True,
             column_config={
-                'Date': st.column_config.TextColumn('📅 Date', width='medium'),
-                'Type': st.column_config.TextColumn('Type', width='small'),
-                'Amount (TND)': st.column_config.NumberColumn(
-                    '💰 Amount (TND)',
-                    format='%.2f',
-                    width='medium',
-                ),
-                'Account / Source': st.column_config.TextColumn('📌 Details', width='medium'),
+                'Date': st.column_config.TextColumn('📅 Date'),
+                'Type': st.column_config.TextColumn('🏷️ Type'),
+                'Amount (TND)': st.column_config.NumberColumn('💰 Amount (TND)', format='%.2f'),
+                'Account / Source': st.column_config.TextColumn('📌 Details'),
             }
         )
-        st.caption(f'Showing {len(entries)} transaction{"s" if len(entries) != 1 else ""}')
+        st.caption(f"Showing {len(shown)} of {len(history_entries)} records.")
     else:
-        st.info('No transactions recorded yet. Add your first income or expense!')
-
-
-# ── Footer ───────────────────────────────────────────────────────────────────
-st.markdown("""
-<div style="text-align:center; padding:2rem 0 1rem; color:#555; font-size:0.75rem;">
-    Made with 💜 · Money Manager v1.0 · Data synced live from Google Sheets
-</div>
-""", unsafe_allow_html=True)
+        st.info('No transactions found yet.')
