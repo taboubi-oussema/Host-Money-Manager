@@ -60,59 +60,85 @@ html, body, [class*="css"] {{
 footer {{visibility: hidden;}}
 header {{visibility: hidden;}}
 
+.block-container {{
+    padding-top: 1.4rem;
+    padding-bottom: 2rem;
+    max-width: 1200px;
+}}
+
 /* Main Dashboard Header Banner */
 .dash-banner {{
     background: linear-gradient(135deg, {NAVY} 0%, #0f172a 100%);
-    border-radius: 14px;
-    padding: 1.5rem 2rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 18px;
+    padding: 1.35rem 1.6rem;
     text-align: center;
     color: white;
-    margin-bottom: 1.5rem;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    margin-bottom: 1rem;
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.28);
 }}
 .dash-banner h1 {{
-    font-size: 2.1rem;
+    font-size: clamp(1.35rem, 4vw, 2.05rem);
     font-weight: 800;
-    margin: 0 0 0.3rem 0;
-    letter-spacing: 0.5px;
+    margin: 0 0 0.35rem 0;
+    letter-spacing: 0.4px;
+    line-height: 1.2;
 }}
 .dash-banner p {{
     color: #94a3b8;
     margin: 0;
-    font-size: 0.95rem;
+    font-size: clamp(0.78rem, 2.4vw, 0.95rem);
 }}
 
-/* Top 4 Cards */
-.top-card {{
-    border-radius: 12px;
-    padding: 1.2rem 1rem;
-    color: white;
+/* Header metric cards — same look as expense-section panel cards */
+.top-cards-grid {{
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin: 0 0 1.25rem 0;
+}}
+.header-metric {{
     text-align: center;
-    box-shadow: 0 4px 14px rgba(0,0,0,0.08);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    margin-bottom: 0;
     height: 100%;
 }}
-.top-card:hover {{
-    transform: translateY(-3px);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
-}}
-.top-card-title {{
+.header-metric-label {{
     font-size: 0.8rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    opacity: 0.9;
-    margin-bottom: 0.4rem;
+    color: #94a3b8;
 }}
-.top-card-value {{
-    font-size: 1.55rem;
-    font-weight: 900;
-    letter-spacing: -0.02em;
+.header-metric-value {{
+    font-size: 1.25rem;
+    font-weight: 800;
+    margin-top: 0.2rem;
+    word-break: break-word;
+    line-height: 1.2;
 }}
-.top-card-sub {{
-    font-size: 0.75rem;
-    opacity: 0.85;
-    margin-top: 0.3rem;
+
+@media (max-width: 960px) {{
+    .top-cards-grid {{
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }}
+}}
+@media (max-width: 520px) {{
+    .block-container {{
+        padding-left: 0.7rem !important;
+        padding-right: 0.7rem !important;
+        padding-top: 0.85rem !important;
+    }}
+    .dash-banner {{
+        padding: 1rem 0.9rem;
+        border-radius: 14px;
+        margin-bottom: 0.85rem;
+    }}
+    .top-cards-grid {{
+        grid-template-columns: 1fr;
+        gap: 10px;
+        margin-bottom: 1rem;
+    }}
+    .stTabs [data-baseweb="tab"] {{
+        padding: 8px 10px !important;
+        font-size: 0.82rem;
+    }}
 }}
 
 /* Section Titles (Like Colab Script bars) */
@@ -363,44 +389,31 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 
-# ── Top 4 Total Cards (Colab rows 4-5) ───────────────────────────────────────
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    st.markdown(f"""
-    <div class="top-card" style="background: {TEAL};">
-        <div class="top-card-title">TOTAL INCOME</div>
-        <div class="top-card-value">{money(total_income)}</div>
-        <div class="top-card-sub">All-time earnings</div>
+# ── Top 4 Total Cards (Available Balances & Summary) ─────────────────────────
+st.markdown(f"""
+<div class="top-cards-grid">
+    <div class="panel-box header-metric">
+        <div style="font-size:1.5rem;">💰</div>
+        <div class="header-metric-label">Total Income</div>
+        <div class="header-metric-value" style="color:{TEAL};">{money(total_income)}</div>
     </div>
-    """, unsafe_allow_html=True)
-
-with col2:
-    st.markdown(f"""
-    <div class="top-card" style="background: {BLUE};">
-        <div class="top-card-title">FOR ME ({int(FOR_ME_PCT*100)}%)</div>
-        <div class="top-card-value">{money(allocated['For Me'])}</div>
-        <div class="top-card-sub">Available: {money(available['For Me'])}</div>
+    <div class="panel-box header-metric">
+        <div style="font-size:1.5rem;">👤</div>
+        <div class="header-metric-label">For Me ({int(FOR_ME_PCT*100)}%) Available</div>
+        <div class="header-metric-value" style="color:{BLUE};">{money(available['For Me'])}</div>
     </div>
-    """, unsafe_allow_html=True)
-
-with col3:
-    st.markdown(f"""
-    <div class="top-card" style="background: {PINK};">
-        <div class="top-card-title">FOR MY MOM ({int(FOR_MOM_PCT*100)}%)</div>
-        <div class="top-card-value">{money(allocated['For Mom'])}</div>
-        <div class="top-card-sub">Available: {money(available['For Mom'])}</div>
+    <div class="panel-box header-metric">
+        <div style="font-size:1.5rem;">👩</div>
+        <div class="header-metric-label">For Mom ({int(FOR_MOM_PCT*100)}%) Available</div>
+        <div class="header-metric-value" style="color:{PINK};">{money(available['For Mom'])}</div>
     </div>
-    """, unsafe_allow_html=True)
-
-with col4:
-    st.markdown(f"""
-    <div class="top-card" style="background: {GREEN};">
-        <div class="top-card-title">TRAVEL FUND ({int(TRAVEL_PCT*100)}%)</div>
-        <div class="top-card-value">{money(allocated['Travel'])}</div>
-        <div class="top-card-sub">Available: {money(available['Travel'])}</div>
+    <div class="panel-box header-metric">
+        <div style="font-size:1.5rem;">✈️</div>
+        <div class="header-metric-label">Travel ({int(TRAVEL_PCT*100)}%) Available</div>
+        <div class="header-metric-value" style="color:{GREEN};">{money(available['Travel'])}</div>
     </div>
-    """, unsafe_allow_html=True)
+</div>
+""", unsafe_allow_html=True)
 
 
 # ── Main Tabs ────────────────────────────────────────────────────────────────
@@ -420,43 +433,39 @@ with tab_dash:
     # ── Section: Where Your Money Goes (Colab rows 7-11) ─────────────────────
     st.markdown('<div class="section-banner">📊 WHERE YOUR MONEY GOES</div>', unsafe_allow_html=True)
 
-    col_alloc_cards, col_alloc_chart = st.columns([1, 1], gap='large')
-
-    with col_alloc_cards:
-        share_me = (allocated['For Me'] / total_income * 100) if total_income > 0 else Decimal('50.0')
-        share_mom = (allocated['For Mom'] / total_income * 100) if total_income > 0 else Decimal('5.0')
-        share_travel = (allocated['Travel'] / total_income * 100) if total_income > 0 else Decimal('45.0')
-
+    c_me, c_mom, c_trv = st.columns(3)
+    with c_me:
         st.markdown(f"""
         <div class="alloc-item alloc-me">
-            <div><strong>👤 For Me (50%)</strong><br><small>Personal living & freedom</small></div>
+            <div><strong>👤 For Me (50%)</strong><br><small>Allocated: {money(allocated['For Me'])} • Spent: {money(spent['For Me'])}</small></div>
             <div style="text-align:right;">
-                <div style="font-weight:700; font-size:1.1rem;">{money(allocated['For Me'])}</div>
-                <div style="font-size:0.8rem; opacity:0.85;">{share_me:.1f}% share</div>
-            </div>
-        </div>
-        <div class="alloc-item alloc-mom">
-            <div><strong>👩 For My Mom (5%)</strong><br><small>Family support & gifts</small></div>
-            <div style="text-align:right;">
-                <div style="font-weight:700; font-size:1.1rem;">{money(allocated['For Mom'])}</div>
-                <div style="font-size:0.8rem; opacity:0.85;">{share_mom:.1f}% share</div>
-            </div>
-        </div>
-        <div class="alloc-item alloc-travel">
-            <div><strong>✈️ Travel (45%)</strong><br><small>Adventures & flight savings</small></div>
-            <div style="text-align:right;">
-                <div style="font-weight:700; font-size:1.1rem;">{money(allocated['Travel'])}</div>
-                <div style="font-size:0.8rem; opacity:0.85;">{share_travel:.1f}% share</div>
+                <div style="font-weight:700; font-size:1.15rem;">{money(available['For Me'])}</div>
+                <div style="font-size:0.75rem; opacity:0.85;">available</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-    with col_alloc_chart:
-        alloc_df = pd.DataFrame({
-            'Category': ['👤 For Me', '👩 For Mom', '✈️ Travel'],
-            'Allocated (TND)': [float(allocated['For Me']), float(allocated['For Mom']), float(allocated['Travel'])]
-        }).set_index('Category')
-        st.bar_chart(alloc_df, color=[BLUE], height=210)
+    with c_mom:
+        st.markdown(f"""
+        <div class="alloc-item alloc-mom">
+            <div><strong>👩 For My Mom (5%)</strong><br><small>Allocated: {money(allocated['For Mom'])} • Spent: {money(spent['For Mom'])}</small></div>
+            <div style="text-align:right;">
+                <div style="font-weight:700; font-size:1.15rem;">{money(available['For Mom'])}</div>
+                <div style="font-size:0.75rem; opacity:0.85;">available</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with c_trv:
+        st.markdown(f"""
+        <div class="alloc-item alloc-travel">
+            <div><strong>✈️ Travel (45%)</strong><br><small>Allocated: {money(allocated['Travel'])} • Spent: {money(spent['Travel'])}</small></div>
+            <div style="text-align:right;">
+                <div style="font-weight:700; font-size:1.15rem;">{money(available['Travel'])}</div>
+                <div style="font-size:0.75rem; opacity:0.85;">available</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
 
     # ── Section: Travel Goal (Colab rows 13-17) ──────────────────────────────
@@ -536,126 +545,91 @@ with tab_dash:
             'Travel': m_travel,
             'Expenses': m_exp
         })
-        chart_split.append({
-            'Month': label,
-            'For Me': m_me,
-            'For Mom': m_mom,
-            'Travel': m_travel
-        })
-
-    col_m_tbl, col_m_ch = st.columns([3, 2], gap='large')
-    with col_m_tbl:
-        m_df = pd.DataFrame(m_rows)
-        st.dataframe(
-            m_df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                'Month': st.column_config.TextColumn('📅 Month'),
-                'Income': st.column_config.NumberColumn('💰 Income', format='%.2f'),
-                'For Me': st.column_config.NumberColumn('👤 For Me', format='%.2f'),
-                'For Mom': st.column_config.NumberColumn('👩 For Mom', format='%.2f'),
-                'Travel': st.column_config.NumberColumn('✈️ Travel', format='%.2f'),
-                'Expenses': st.column_config.NumberColumn('🔥 Expenses', format='%.2f'),
-            }
-        )
-
-    with col_m_ch:
-        st.markdown('<div style="font-size:0.9rem; font-weight:600; margin-bottom:0.4rem;">Monthly Income Split Chart</div>', unsafe_allow_html=True)
-        cs_df = pd.DataFrame(chart_split).set_index('Month')
-        st.bar_chart(cs_df, color=[BLUE, PINK, GREEN], height=240)
+    m_df = pd.DataFrame(m_rows)
+    st.dataframe(
+        m_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            'Month': st.column_config.TextColumn('📅 Month'),
+            'Income': st.column_config.NumberColumn('💰 Income', format='%.2f'),
+            'For Me': st.column_config.NumberColumn('👤 For Me', format='%.2f'),
+            'For Mom': st.column_config.NumberColumn('👩 For Mom', format='%.2f'),
+            'Travel': st.column_config.NumberColumn('✈️ Travel', format='%.2f'),
+            'Expenses': st.column_config.NumberColumn('🔥 Expenses', format='%.2f'),
+        }
+    )
 
 
     # ── Section: Account Balances (Colab rows 28-33) ─────────────────────────
     st.markdown('<div class="section-banner">💳 ACCOUNT BALANCES</div>', unsafe_allow_html=True)
 
-    col_bal_tbl, col_bal_ch = st.columns([3, 2], gap='large')
-
-    with col_bal_tbl:
-        bal_table_rows = [
-            {
-                'Account': '👤 For Me',
-                'Allocated': float(allocated['For Me']),
-                'Spent': float(spent['For Me']),
-                'Available': float(available['For Me'])
-            },
-            {
-                'Account': '👩 For Mom',
-                'Allocated': float(allocated['For Mom']),
-                'Spent': float(spent['For Mom']),
-                'Available': float(available['For Mom'])
-            },
-            {
-                'Account': '✈️ Travel',
-                'Allocated': float(allocated['Travel']),
-                'Spent': float(spent['Travel']),
-                'Available': float(available['Travel'])
-            },
-            {
-                'Account': '💰 TOTAL',
-                'Allocated': float(total_allocated),
-                'Spent': float(total_spent),
-                'Available': float(total_available)
-            }
-        ]
-        b_df = pd.DataFrame(bal_table_rows)
-        st.dataframe(
-            b_df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                'Account': st.column_config.TextColumn('Account', width='medium'),
-                'Allocated': st.column_config.NumberColumn('Allocated (TND)', format='%.2f'),
-                'Spent': st.column_config.NumberColumn('Spent (TND)', format='%.2f'),
-                'Available': st.column_config.NumberColumn('Available (TND)', format='%.2f'),
-            }
-        )
-
-    with col_bal_ch:
-        st.markdown('<div style="font-size:0.9rem; font-weight:600; margin-bottom:0.4rem;">Allocated vs Available</div>', unsafe_allow_html=True)
-        ch_bal_df = pd.DataFrame([
-            {'Account': 'For Me', 'Allocated': float(allocated['For Me']), 'Available': float(available['For Me'])},
-            {'Account': 'For Mom', 'Allocated': float(allocated['For Mom']), 'Available': float(available['For Mom'])},
-            {'Account': 'Travel', 'Allocated': float(allocated['Travel']), 'Available': float(available['Travel'])},
-        ]).set_index('Account')
-        st.bar_chart(ch_bal_df, color=[SLATE, GREEN], height=240)
+    bal_table_rows = [
+        {
+            'Account': '👤 For Me',
+            'Allocated': float(allocated['For Me']),
+            'Spent': float(spent['For Me']),
+            'Available': float(available['For Me'])
+        },
+        {
+            'Account': '👩 For Mom',
+            'Allocated': float(allocated['For Mom']),
+            'Spent': float(spent['For Mom']),
+            'Available': float(available['For Mom'])
+        },
+        {
+            'Account': '✈️ Travel',
+            'Allocated': float(allocated['Travel']),
+            'Spent': float(spent['Travel']),
+            'Available': float(available['Travel'])
+        },
+        {
+            'Account': '💰 TOTAL',
+            'Allocated': float(total_allocated),
+            'Spent': float(total_spent),
+            'Available': float(total_available)
+        }
+    ]
+    b_df = pd.DataFrame(bal_table_rows)
+    st.dataframe(
+        b_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            'Account': st.column_config.TextColumn('Account', width='medium'),
+            'Allocated': st.column_config.NumberColumn('Allocated (TND)', format='%.2f'),
+            'Spent': st.column_config.NumberColumn('Spent (TND)', format='%.2f'),
+            'Available': st.column_config.NumberColumn('Available (TND)', format='%.2f'),
+        }
+    )
 
 
     # ── Section: Income by Source (Colab rows 65-80) ─────────────────────────
     st.markdown('<div class="section-banner">💼 INCOME BY SOURCE</div>', unsafe_allow_html=True)
 
-    col_src_tbl, col_src_ch = st.columns([3, 2], gap='large')
-
-    with col_src_tbl:
-        src_rows = []
-        for s_name, s_tot in sorted(source_totals.items(), key=lambda x: x[1], reverse=True):
-            src_rows.append({
-                'Source': s_name,
-                'Total Received (TND)': float(s_tot),
-                'Transactions': source_counts[s_name],
-                'Share': f"{(float(s_tot)/float(total_income)*100):.1f}%" if total_income > 0 else '0.0%'
-            })
-        if src_rows:
-            src_df = pd.DataFrame(src_rows)
-            st.dataframe(
-                src_df,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    'Source': st.column_config.TextColumn('Source'),
-                    'Total Received (TND)': st.column_config.NumberColumn('Total Received', format='%.2f'),
-                    'Transactions': st.column_config.NumberColumn('Transactions'),
-                    'Share': st.column_config.TextColumn('Share %'),
-                }
-            )
-        else:
-            st.info('No income sources recorded yet.')
-
-    with col_src_ch:
-        if src_rows:
-            st.markdown('<div style="font-size:0.9rem; font-weight:600; margin-bottom:0.4rem;">Source Distribution</div>', unsafe_allow_html=True)
-            ch_src_df = pd.DataFrame(src_rows).set_index('Source')[['Total Received (TND)']]
-            st.bar_chart(ch_src_df, color=[TEAL], height=240)
+    src_rows = []
+    for s_name, s_tot in sorted(source_totals.items(), key=lambda x: x[1], reverse=True):
+        src_rows.append({
+            'Source': s_name,
+            'Total Received (TND)': float(s_tot),
+            'Transactions': source_counts[s_name],
+            'Share': f"{(float(s_tot)/float(total_income)*100):.1f}%" if total_income > 0 else '0.0%'
+        })
+    if src_rows:
+        src_df = pd.DataFrame(src_rows)
+        st.dataframe(
+            src_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                'Source': st.column_config.TextColumn('Source'),
+                'Total Received (TND)': st.column_config.NumberColumn('Total Received', format='%.2f'),
+                'Transactions': st.column_config.NumberColumn('Transactions'),
+                'Share': st.column_config.TextColumn('Share %'),
+            }
+        )
+    else:
+        st.info('No income sources recorded yet.')
 
 
 # ═════════════════════════════════════════════════════════════════════════════
